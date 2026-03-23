@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Flashcards</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f0f0f0; color: #222;
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; background: #fff; border-bottom: 1px solid #ddd;
+    flex-shrink: 0;
+  }
+  .header .meta { font-size: 13px; color: #999; }
+  .mode-btn {
+    background: #3498db; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .quiz-view {
+    flex: 1; display: flex; flex-direction: column;
+    padding: 16px; gap: 12px; overflow: hidden;
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 20px 16px;
+    text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    flex-shrink: 0;
+  }
+  .card .word {
+    font-size: 28px; font-weight: 700; line-height: 1.3;
+    min-height: 70px; display: flex; align-items: center; justify-content: center;
+    word-break: break-word;
+  }
+  .reveal-card {
+    background: #fff; border-radius: 12px; padding: 16px;
+    text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column;
+    justify-content: center; gap: 12px; min-height: 0;
+  }
+  .meaning { font-size: 18px; color: #0a8f6a; font-weight: 500; line-height: 1.4; }
+  .example { font-size: 14px; color: #666; font-style: italic; line-height: 1.5; }
+  .btn-row { display: flex; gap: 10px; flex-shrink: 0; }
+  .btn-row button {
+    flex: 1; height: 56px; border: none; border-radius: 14px;
+    font-size: 20px; font-weight: 700; color: #fff; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-row button:active { opacity: 0.7; }
+  .btn-row button:disabled { opacity: 0.4; }
+  .btn-unknown { background: #e74c3c; }
+  .btn-known { background: #2ecc71; }
+  .btn-hmm { background: #f1c40f; color: #333 !important; }
+  .slider-row {
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+    font-size: 13px; color: #888;
+  }
+  .slider-row input[type=range] { flex: 1; accent-color: #0a8f6a; }
+  .bottom-bar { display: flex; gap: 8px; flex-shrink: 0; }
+  .bottom-bar button {
+    flex: 1; padding: 8px; background: #fff; color: #666;
+    border: 1px solid #ccc; border-radius: 8px; font-size: 12px; cursor: pointer;
+  }
+  .learn-view { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+  .learn-view.active { display: flex; }
+  .quiz-view.hidden { display: none; }
+  .word-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .word-list table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .word-list th {
+    position: sticky; top: 0; background: #f0f0f0;
+    padding: 10px 8px; text-align: left; font-size: 13px;
+    border-bottom: 2px solid #ccc;
+  }
+  .word-list td {
+    padding: 10px 8px; border-bottom: 1px solid #e8e8e8;
+    vertical-align: top; line-height: 1.4;
+  }
+  .word-col { font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="meta" id="metaInfo"></span>
+  <button class="mode-btn" id="modeBtn" onclick="toggleMode()">Learn</button>
+</div>
+<div class="quiz-view" id="quizView">
+  <div class="card"><div class="word" id="wordLabel"></div></div>
+  <div class="reveal-card">
+    <div class="meaning" id="meaningLabel"></div>
+    <div class="example" id="exampleLabel"></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn-unknown" id="btnUnknown" onclick="answer('unknown')">?</button>
+    <button class="btn-known" id="btnKnown" onclick="answer('known')">!</button>
+    <button class="btn-hmm" id="btnHmm" onclick="answer('hmm')">Hmm</button>
+  </div>
+  <div class="slider-row">
+    <span>Delay:</span>
+    <input type="range" id="slider" min="2" max="20" value="6" oninput="sliderChanged()">
+    <span id="sliderVal">3.0s</span>
+  </div>
+  <div class="bottom-bar">
+    <button onclick="exportProb()">Export Prob</button>
+    <button onclick="resetProb()">Reset Prob</button>
+    <button onclick="syncToLocal()">Save Snapshot</button>
+  </div>
+</div>
+<div class="learn-view" id="learnView">
+  <div class="word-list">
+    <table>
+      <thead><tr><th>Word</th><th>Definition</th><th>Example</th></tr></thead>
+      <tbody id="learnBody"></tbody>
+    </table>
+  </div>
+</div>
+<script>
+const BAKED_WORDS = [
+  {
+    "word": "epistemicide",
+    "meaning": "인식론적 살해 (지식 체계의 폭력적 말살 또는 억압)",
+    "example": "The imposition of colonial education systems resulted in epistemicide that erased local ways of knowing.",
+    "prob": 50.0
+  },
+  {
+    "word": "diasporic",
+    "meaning": "디아스포라의 (고향이나 조국을 떠나 흩어져 사는 공동체와 관련된)",
+    "example": "Many diasporic communities maintain strong cultural ties to their ancestral homelands across generations.",
+    "prob": 5.0
+  },
+  {
+    "word": "therapeutic",
+    "meaning": "치료적인 (치료나 치유에 도움이 되는 또는 그것을 촉진하는)",
+    "example": "Writing in her journal had a therapeutic effect helping her process difficult emotions and find clarity.",
+    "prob": 50.0
+  },
+  {
+    "word": "nurturing",
+    "meaning": "양육적인 (돌보고 성장을 도모하는; 발전을 지원하는)",
+    "example": "The mentor's nurturing approach gave the young researchers confidence to develop their innovative ideas.",
+    "prob": 5.0
+  },
+  {
+    "word": "sorority",
+    "meaning": "여학생 친목회 (대학에서 여학생들로 구성된 사교적 단체)",
+    "example": "Her experience in the sorority helped her build lifelong friendships and develop leadership skills.",
+    "prob": 5.0
+  },
+  {
+    "word": "coalesce",
+    "meaning": "융합하다 (여러 부분이나 요소가 하나로 합쳐지거나 통합되다)",
+    "example": "Different political factions began to coalesce around a compromise solution after months of debate.",
+    "prob": 50.0
+  },
+  {
+    "word": "Imponderable",
+    "meaning": "불가해한 문제 (측정하거나 이해하기 어려운 질문이나 수수께끼)",
+    "example": "The nature of consciousness remains one of the great imponderables that philosophers and scientists still debate.",
+    "prob": 5.0
+  },
+  {
+    "word": "neurodivergent",
+    "meaning": "신경다양성을 가진 (표준적인 신경 발달 패턴과 다른 인지 기능을 가진)",
+    "example": "Facilitated non-verbal communication channels for neurodivergent participants",
+    "prob": 50.0
+  },
+  {
+    "word": "iconoclasm",
+    "meaning": "우상 파괴주의 (기존의 전통적 가치나 믿음에 대한 거부 또는 공격)",
+    "example": "historian of science Thomas Kuhn has referred to as the \"essential tension\" of science between convention and iconoclasm",
+    "prob": 5.0
+  },
+  {
+    "word": "ambivalent",
+    "meaning": "양가적인 (상반된 감정이나 태도를 동시에 가지는)",
+    "example": "I show that the relationship between sonification and visual culture is in fact more complex and ambivalent",
+    "prob": 19.47
+  },
+  {
+    "word": "mesmerised",
+    "meaning": "매료된 (완전히 마음을 빼앗기거나 마법에 걸린 듯한 상태의)",
+    "example": "he corporate world is mesmerised by this musical representation",
+    "prob": 100.0
+  },
+  {
+    "word": "lull",
+    "meaning": "달래다 (부드러운 소리나 리듬으로 편안하게 하거나 진정시키다)",
+    "example": "while some sonifications lull the listeners with the sound of orchestral music, others might prompt them to dance to a techno beat or tap their foot to a jazz tune",
+    "prob": 100.0
+  },
+  {
+    "word": "advocacy",
+    "meaning": "옹호 활동 (특정 원인이나 정책을 지지하고 촉진하는 행위)",
+    "example": "So in this academic context, \"lobby\" refers to advocacy or representation, and \"bad lobby\" means poor or insufficient advocacy rather than harmful advocacy.",
+    "prob": 60.2
+  },
+  {
+    "word": "pretext",
+    "meaning": "구실 (진짜 이유나 목적을 숨기기 위한 표면적인 이유)",
+    "example": "In instances like this, sonification comes close to acting as what Mara Mills (2010) calls an \"assistive pretext\"",
+    "prob": 100.0
+  },
+  {
+    "word": "tantamount",
+    "meaning": "동등한 (사실상 같은 것으로 여겨지는; 그것과 같은)",
+    "example": "these conventions are indeed tantamount to the reliance on visual forms",
+    "prob": 5.0
+  },
+  {
+    "word": "contested",
+    "meaning": "논쟁이 되는 (의견의 불일치나 경쟁이 있는; 이의가 제기된)",
+    "example": "The definition of what constitutes art remains a contested issue among critics and philosophers across different cultures.",
+    "prob": 5.0
+  },
+  {
+    "word": "illations",
+    "meaning": "추리/추론",
+    "example": "Sonnenschein’s discusses the proxemics in regard to creating acoustic illation",
+    "prob": 50.0
+  },
+  {
+    "word": "streamlined",
+    "meaning": "간소화된, 효율적인",
+    "example": "List View for streamlined patch browsing",
+    "prob": 5.0
+  },
+  {
+    "word": "in jest",
+    "meaning": "농담으로, 장난으로",
+    "example": "He said it in jest, but his words still managed to hurt her feelings.",
+    "prob": 5.0
+  },
+  {
+    "word": "dwindle",
+    "meaning": "줄어들다, 감소하다",
+    "example": "The forest continues to dwindle as more trees are cut down for urban development.",
+    "prob": 100.0
+  },
+  {
+    "word": "municipality",
+    "meaning": "지자체, 지방자치단체",
+    "example": "The local municipality is responsible for maintaining the parks and public facilities in our city.",
+    "prob": 50.0
+  },
+  {
+    "word": "disturbance",
+    "meaning": "교란, 방해",
+    "example": "He sensed a disturbance in the force",
+    "prob": 5.0
+  },
+  {
+    "word": "Conscience",
+    "meaning": "양심, 도덕심",
+    "example": "Disney: Promote the movie Conscience: Be honest",
+    "prob": 50.0
+  },
+  {
+    "word": "empathetic",
+    "meaning": "공감하는, 감정 이입의",
+    "example": "Mark Hamill is such a genuine, honest, and empathetic man",
+    "prob": 5.0
+  },
+  {
+    "word": "configuration",
+    "meaning": "구성, 설정",
+    "example": "Add the MCP server to Claude Desktop configuration to enable the integration.",
+    "prob": 5.0
+  },
+  {
+    "word": "nonmammalian",
+    "meaning": "비포유류의, 비포유동물의",
+    "example": "The researchers compared the brain development of these nonmammalian species to that of primates.",
+    "prob": 5.0
+  },
+  {
+    "word": "prehend",
+    "meaning": "잡다, 이해하다",
+    "example": "A vibratory nexus exceeds and precedes the distinction between subject and object, constituting a mesh of relation in which discreet entities prehend each other’s vibrations.",
+    "prob": 5.0
+  },
+  {
+    "word": "affinity",
+    "meaning": "친밀감, 유사성",
+    "example": "In its primary amodality and secondary affinity to the sonic, a discussion of vibrational ecologies also helps counter ocularcentric' secondary affinity",
+    "prob": 53.21
+  },
+  {
+    "word": "Culprit",
+    "meaning": "범인, 가해자",
+    "example": "The detective finally identified the culprit behind the mysterious string of bank robberies.",
+    "prob": 5.0
+  },
+  {
+    "word": "purpose",
+    "meaning": "목적, 의도",
+    "example": "The primary purpose of this meeting is to discuss our new project strategy for the upcoming year.",
+    "prob": 50.0
+  },
+  {
+    "word": "misogyny",
+    "meaning": "- 여성 혐오",
+    "example": "The documentary highlights how systemic misogyny continues to influence workplace culture in many industries today.",
+    "prob": 50.0
+  },
+  {
+    "word": "Rosetta",
+    "meaning": "로제타석 / 로제타 (여성 이름)",
+    "example": "The Rosetta Stone was the essential key used by historians to decipher ancient Egyptian hieroglyphs.",
+    "prob": 5.0
+  },
+  {
+    "word": "amalgamation",
+    "meaning": "결합이나 혼합체",
+    "example": "The new corporate structure is a complex amalgamation of several different smaller departments.",
+    "prob": 5.0
+  },
+  {
+    "word": "dematerialised",
+    "meaning": "비물질화된 형태",
+    "example": "The architect proposed a dematerialised structure that appeared to vanish into the surrounding natural landscape.",
+    "prob": 5.0
+  },
+  {
+    "word": "relational",
+    "meaning": "관계에 기반한",
+    "example": "Effective leadership relies on building strong relational connections with every member of the team.",
+    "prob": 5.0
+  },
+  {
+    "word": "symbiotic",
+    "meaning": "공생하는 관계",
+    "example": "Bees and flowers share a symbiotic relationship that benefits both species in the ecosystem.",
+    "prob": 50.0
+  },
+  {
+    "word": "semi-structured",
+    "meaning": "반구조화된 형식",
+    "example": "The researchers used a semi-structured interview format to gather qualitative data from the participants.",
+    "prob": 50.0
+  },
+  {
+    "word": "binomial",
+    "meaning": "두 가지로 이뤄진",
+    "example": "The mathematician explained the properties of the binomial distribution during our lecture this morning.",
+    "prob": 50.0
+  },
+  {
+    "word": "intermittently",
+    "meaning": "간헐적으로",
+    "example": "The heavy rain fell intermittently throughout the afternoon, delaying our plans for a hike.",
+    "prob": 5.0
+  },
+  {
+    "word": "situated",
+    "meaning": "특정 상황 속의",
+    "example": "He felt confused, situated in a difficult position between his two arguing best friends.",
+    "prob": 5.0
+  },
+  {
+    "word": "articulations",
+    "meaning": "명확한 표현들",
+    "example": "His thoughtful articulations of the complex theory helped the entire class understand the difficult topic.",
+    "prob": 5.0
+  },
+  {
+    "word": "sociality",
+    "meaning": "사회적 성격",
+    "example": "The animal's complex sociality is essential for the survival and protection of the entire group.",
+    "prob": 5.0
+  },
+  {
+    "word": "dichotomy",
+    "meaning": "이분법적 구분",
+    "example": "There is a false dichotomy between being a creative person and a logical one.",
+    "prob": 5.0
+  },
+  {
+    "word": "configurations",
+    "meaning": "배치와 구성",
+    "example": "The engineers tested several different hardware configurations to improve the system's overall performance.",
+    "prob": 5.0
+  },
+  {
+    "word": "constellations",
+    "meaning": "여러 요소의 배열",
+    "example": "The modern political landscape is defined by shifting constellations of power and influence among global nations.",
+    "prob": 100.0
+  },
+  {
+    "word": "sensorium",
+    "meaning": "감각 체계",
+    "example": "The virtual reality headset is designed to fully immerse the human sensorium in a digital world.",
+    "prob": 50.0
+  },
+  {
+    "word": "aurally",
+    "meaning": "청각적으로",
+    "example": "The students were asked to identify the different bird calls aurally during the forest hike.",
+    "prob": 5.0
+  },
+  {
+    "word": "morphs",
+    "meaning": "형태가 변하는",
+    "example": "The digital image morphs into a vibrant landscape as the animation sequence progresses on screen.",
+    "prob": 5.0
+  },
+  {
+    "word": "stationary",
+    "meaning": "정지된 주파수",
+    "example": "The antenna maintains a stationary frequency to ensure a stable connection for the remote receiver.",
+    "prob": 50.0
+  },
+  {
+    "word": "polysemic",
+    "meaning": "다의적인 성격",
+    "example": "The word bank has a polysemic nature because it refers to both a financial institution and a river edge.",
+    "prob": 100.0
+  },
+  {
+    "word": "intermittent",
+    "meaning": "단속적인 발생",
+    "example": "The hiker faced intermittent rain showers throughout his long trek across the mountain ridge.",
+    "prob": 5.0
+  },
+  {
+    "word": "disruptive",
+    "meaning": "파괴적인 성질",
+    "example": "The disruptive student was asked to leave the classroom because he kept interrupting the lecture.",
+    "prob": 50.0
+  },
+  {
+    "word": "volumetry",
+    "meaning": "용적의 측정법",
+    "example": "The laboratory technician used precise volumetry to determine the exact liquid capacity of the container.",
+    "prob": 15.38
+  },
+  {
+    "word": "transversal",
+    "meaning": "횡단하는 체계",
+    "example": "The architect proposed a transversal system to connect the distinct wings of the building.",
+    "prob": 50.0
+  },
+  {
+    "word": "superimposed",
+    "meaning": "겹쳐 놓인 형태",
+    "example": "The image of the satellite was superimposed over the map to show the exact location.",
+    "prob": 5.0
+  },
+  {
+    "word": "morphologies",
+    "meaning": "공간적 형태론",
+    "example": "Urban planners analyzed the distinct morphologies of the city to improve its overall spatial layout.",
+    "prob": 5.0
+  },
+  {
+    "word": "diffused",
+    "meaning": "확산된 소리",
+    "example": "The soft music was diffused throughout the entire room by the high-quality ceiling speakers.",
+    "prob": 50.0
+  },
+  {
+    "word": "objectual",
+    "meaning": "객체에 국한된",
+    "example": "The analysis remained strictly objectual, focusing entirely on the physical properties of the materials.",
+    "prob": 100.0
+  },
+  {
+    "word": "constituent",
+    "meaning": "구성 요소인",
+    "example": "Hydrogen and oxygen are each a constituent element of the water molecule.",
+    "prob": 50.0
+  },
+  {
+    "word": "attune",
+    "meaning": "조율하는 행위",
+    "example": "He took a moment to attune his mind to the peaceful sounds of the forest.",
+    "prob": 5.0
+  },
+  {
+    "word": "inanimate",
+    "meaning": "생명이 없는",
+    "example": "The researcher studied the movement of inanimate objects in a controlled laboratory environment.",
+    "prob": 50.0
+  },
+  {
+    "word": "conformation",
+    "meaning": "구조적 형성",
+    "example": "The protein changed its conformation to bind effectively with the targeted cell receptor.",
+    "prob": 100.0
+  },
+  {
+    "word": "trespasses",
+    "meaning": "경계를 넘어섬",
+    "example": "Anyone who trespasses on this private property will be prosecuted to the fullest extent of the law.",
+    "prob": 5.0
+  },
+  {
+    "word": "diffraction",
+    "meaning": "소리의 회절",
+    "example": "The phenomenon of sound diffraction allows us to hear music even when it originates around a corner.",
+    "prob": 5.0
+  },
+  {
+    "word": "echolocation",
+    "meaning": "반향 정위법",
+    "example": "Bats use echolocation to navigate through the dark and locate their prey at night.",
+    "prob": 50.0
+  },
+  {
+    "word": "sub-low",
+    "meaning": "초저주파 대역",
+    "example": "The powerful subwoofer produces deep sound waves in the sub-low frequency range for a cinematic experience.",
+    "prob": 50.0
+  },
+  {
+    "word": "substrate",
+    "meaning": "근본적 토대",
+    "example": "Trust and mutual respect form the necessary substrate for a healthy and long-lasting relationship.",
+    "prob": 100.0
+  },
+  {
+    "word": "atemporal",
+    "meaning": "시간을 초월한",
+    "example": "The artist believes that true beauty is atemporal and transcends the constraints of any specific era.",
+    "prob": 5.0
+  },
+  {
+    "word": "mise en scène",
+    "meaning": "공간 연출",
+    "example": "The film's meticulous mise en scène perfectly captures the isolated atmosphere of the desolate landscape.",
+    "prob": 5.0
+  },
+  {
+    "word": "transduce",
+    "meaning": "에너지를 변환함",
+    "example": "The microphone works by using a diaphragm to transduce sound waves into electrical signals.",
+    "prob": 5.0
+  },
+  {
+    "word": "githubTest--",
+    "meaning": "깃허브테스트",
+    "example": "",
+    "prob": 100
+  },
+  {
+    "word": "Ward",
+    "meaning": "피보호자 또는 구역",
+    "example": "The young prince was a ward of the court.",
+    "prob": 5.0
+  },
+  {
+    "word": "Ward off",
+    "meaning": "위험 등을 막다",
+    "example": "The government took measures to ward off a recession.",
+    "prob": 50.0
+  },
+  {
+    "word": "Elicit",
+    "meaning": "정보나 반응을 이끌어내다",
+    "example": "The questionnaire was intended to elicit information on eating habits.",
+    "prob": 5.0
+  },
+  {
+    "word": "Assortment",
+    "meaning": "여러 종류의 모음",
+    "example": "The box contains a wide assortment of chocolates.",
+    "prob": 100.0
+  },
+  {
+    "word": "Armature",
+    "meaning": "발전기의 회전자나 조각의 골조",
+    "example": "He built the clay sculpture over a wire armature.",
+    "prob": 100.0
+  },
+  {
+    "word": "Sore",
+    "meaning": "근육 등이 아프거나 쓰린 상태",
+    "example": "His muscles were sore after the long workout.",
+    "prob": 100.0
+  },
+  {
+    "word": "Soldier on",
+    "meaning": "어려움에도 굴하지 않고 계속하다",
+    "example": "Despite the exhaustion, the team decided to soldier on until the task was finished.",
+    "prob": 5.0
+  },
+  {
+    "word": "Well toned",
+    "meaning": "근육이 적당히 발달하여 탄탄한",
+    "example": "She maintained a well toned physique through regular swimming and yoga.",
+    "prob": 5.0
+  },
+  {
+    "word": "Stark-white",
+    "meaning": "장식 없이 아주 순백색인",
+    "example": "The walls were painted a stark-white that made the room feel clinical.",
+    "prob": 50.0
+  },
+  {
+    "word": "On the verge of death",
+    "meaning": "죽음에 임박하여 곧 죽을 듯한",
+    "example": "The wounded soldier was on the verge of death when help finally arrived.",
+    "prob": 50.0
+  },
+  {
+    "word": "Frown",
+    "meaning": "눈살을 찌푸리며 찡그리다",
+    "example": "She looked at the report with a frown of concentration.",
+    "prob": 24.62
+  },
+  {
+    "word": "Struck one as odd",
+    "meaning": "누군가에게 이상하다는 인상을 주다",
+    "example": "It struck me as odd that he never mentioned his brother.",
+    "prob": 52.9
+  },
+  {
+    "word": "Shimmy out",
+    "meaning": "몸을 흔들어 살살 빠져나오다",
+    "example": "She managed to shimmy out of the tight dress after the gala.",
+    "prob": 5.0
+  },
+  {
+    "word": "Consequential",
+    "meaning": "결과로서 일어나는 또는 중대한",
+    "example": "The decision to merge the two companies was highly consequential for the industry.",
+    "prob": 5.0
+  },
+  {
+    "word": "En route",
+    "meaning": "어디론가 가는 도중에",
+    "example": "The ship sank en route from New York to Southampton.",
+    "prob": 5.0
+  },
+  {
+    "word": "Deployed on",
+    "meaning": "특정 위치에 배치되거나 설치된",
+    "example": "The new software was successfully deployed on all company servers.",
+    "prob": 5.0
+  },
+  {
+    "word": "Deployed by",
+    "meaning": "특정 주체에 의해 배치되다",
+    "example": "Tactics deployed by the army were highly effective in the field.",
+    "prob": 5.0
+  },
+  {
+    "word": "Intoxication",
+    "meaning": "술이나 약물에 취한 상태",
+    "example": "He was arrested for driving while in a state of intoxication.",
+    "prob": 5.0
+  },
+  {
+    "word": "Tangential",
+    "meaning": "본론과 관계가 적거나 겉도는",
+    "example": "The matter you raise is tangential to our main discussion.",
+    "prob": 5.0
+  },
+  {
+    "word": "Connoisseurship",
+    "meaning": "예술 등에 관한 해박한 감식력",
+    "example": "His connoisseurship of fine wines is well known among his peers.",
+    "prob": 50.0
+  },
+  {
+    "word": "Connoisseur",
+    "meaning": "예술이나 음식의 박식한 감정가",
+    "example": "He is a connoisseur of fine wines and rare cigars.",
+    "prob": 5.0
+  }
+];
+const STORAGE_KEY = 'flashcard_probs_v1';
+let words = [], currentIndex = -1, isRevealing = false, delaySec = 3.0, timer = null, isLearningMode = false;
+
+function init() {
+  words = BAKED_WORDS.map(w => ({...w}));
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) { try { const m = JSON.parse(saved); for (const w of words) if (w.word in m) w.prob = m[w.word]; } catch(e) {} }
+  showNextWord();
+}
+function saveProbs() {
+  const m = {}; for (const w of words) m[w.word] = Math.round(w.prob*100)/100;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(m));
+}
+function pickNextWord() {
+  if (!words.length) return -1;
+  const total = words.reduce((s,w) => s+w.prob, 0);
+  let r = Math.random()*total;
+  for (let i=0;i<words.length;i++) { r-=words[i].prob; if(r<=0) return i; }
+  return words.length-1;
+}
+function showNextWord() {
+  clearTimeout(timer); isRevealing = false; currentIndex = pickNextWord();
+  if (currentIndex<0) return;
+  const w = words[currentIndex];
+  document.getElementById('wordLabel').textContent = w.word;
+  document.getElementById('meaningLabel').textContent = '';
+  document.getElementById('exampleLabel').textContent = '';
+  document.getElementById('metaInfo').textContent = `${Math.round(w.prob)}% \u00b7 ${words.length} words`;
+  setButtonsEnabled(true);
+}
+function answer(type) {
+  if (isRevealing||currentIndex<0) return;
+  isRevealing=true; setButtonsEnabled(false);
+  const w = words[currentIndex];
+  if (type==='unknown') w.prob=Math.min(100,w.prob+50);
+  else if (type==='known') w.prob=Math.max(5,w.prob-50);
+  else w.prob=40+Math.random()*40;
+  saveProbs();
+  document.getElementById('meaningLabel').textContent = w.meaning;
+  document.getElementById('exampleLabel').textContent = w.example;
+  document.getElementById('metaInfo').textContent = `${Math.round(w.prob)}% \u00b7 ${words.length} words`;
+  timer = setTimeout(showNextWord, delaySec*1000);
+}
+function setButtonsEnabled(e) {
+  document.getElementById('btnUnknown').disabled=!e;
+  document.getElementById('btnKnown').disabled=!e;
+  document.getElementById('btnHmm').disabled=!e;
+}
+function sliderChanged() {
+  delaySec = document.getElementById('slider').value/2;
+  document.getElementById('sliderVal').textContent = delaySec.toFixed(1)+'s';
+}
+function toggleMode() {
+  isLearningMode=!isLearningMode;
+  const btn=document.getElementById('modeBtn');
+  if(isLearningMode){btn.textContent='Quiz';clearTimeout(timer);document.getElementById('quizView').classList.add('hidden');document.getElementById('learnView').classList.add('active');populateLearnTable();}
+  else{btn.textContent='Learn';document.getElementById('quizView').classList.remove('hidden');document.getElementById('learnView').classList.remove('active');showNextWord();}
+}
+function populateLearnTable(){
+  const s=[...words].sort(()=>Math.random()-0.5), tbody=document.getElementById('learnBody');
+  tbody.innerHTML=s.map(w=>`<tr><td class="word-col">${esc(w.word)}</td><td>${esc(w.meaning)}</td><td style="font-size:12px;color:#666;font-style:italic">${esc(w.example)}</td></tr>`).join('');
+}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function exportProb(){
+  let csv='word,probability\n';for(const w of words)csv+=`"${w.word}",${Math.round(w.prob*100)/100}\n`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='words_prob.csv';a.click();
+}
+function resetProb(){if(!confirm('Reset all probabilities to 100%?'))return;for(const w of words)w.prob=100;saveProbs();document.getElementById('metaInfo').textContent=`100% \u00b7 ${words.length} words`;}
+function syncToLocal(){saveProbs();alert('Probabilities saved to browser storage.');}
+document.addEventListener('keydown',e=>{if(isLearningMode)return;if(e.key==='1')answer('unknown');else if(e.key==='2')answer('known');else if(e.key==='3')answer('hmm');});
+let touchStartX=0;
+document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;});
+document.addEventListener('touchend',e=>{if(isLearningMode)return;const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>60){if(dx<0)answer('unknown');else answer('known');}});
+init();
+</script>
+</body>
+</html>
