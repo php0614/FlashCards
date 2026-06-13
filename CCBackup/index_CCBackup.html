@@ -84,56 +84,11 @@
     vertical-align: top; line-height: 1.4;
   }
   .word-col { font-weight: 600; white-space: nowrap; }
-
-  /* ---- Learn page (editable manager) ---- */
-  .learn-toolbar {
-    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-    padding: 10px 12px; background: #fff; border-bottom: 1px solid #ddd; flex-shrink: 0;
-  }
-  .learn-toolbar input[type=text] {
-    flex: 1 1 160px; min-width: 120px; padding: 8px 10px; font-size: 14px;
-    border: 1px solid #ccc; border-radius: 8px; outline: none;
-  }
-  .learn-toolbar input[type=text]:focus { border-color: #3b82f6; }
-  .learn-toolbar select {
-    padding: 8px 8px; font-size: 13px; border: 1px solid #ccc; border-radius: 8px; background: #fff;
-  }
-  .learn-toolbar button {
-    padding: 8px 12px; font-size: 13px; font-weight: 600; border: 1px solid #ccc;
-    border-radius: 8px; background: #fff; color: #444; cursor: pointer; white-space: nowrap;
-  }
-  .learn-toolbar button.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
-  .learn-toolbar button:active { opacity: 0.7; }
-  .learn-statusbar {
-    padding: 6px 12px; font-size: 12px; flex-shrink: 0;
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    background: #fafafa; border-bottom: 1px solid #eee;
-  }
-  .learn-statusbar .msg.ok { color: #0a8f6a; }
-  .learn-statusbar .msg.err { color: #e74c3c; }
-  .learn-statusbar .msg.info { color: #3b82f6; }
-  .learn-statusbar .count { color: #999; }
-  .word-list th.sortable { cursor: pointer; user-select: none; }
-  .word-list th .arrow { font-size: 10px; color: #3b82f6; }
-  .word-list td[contenteditable] { outline: none; }
-  .word-list td[contenteditable]:focus { background: #eef6ff; box-shadow: inset 0 0 0 2px #3b82f6; border-radius: 4px; }
-  .word-list td.ex { font-size: 12px; color: #666; font-style: italic; }
-  .word-list td.prob-col { width: 42px; text-align: center; font-weight: 600; color: #0a8f6a; white-space: nowrap; }
-  .word-list td.del-col { width: 28px; text-align: center; }
-  .word-list td.del-col button {
-    border: none; background: none; color: #ccc; font-size: 15px; cursor: pointer; line-height: 1;
-  }
-  .word-list td.del-col button:hover { color: #e74c3c; }
-  .cloud-dot { font-size: 11px; margin-left: 8px; }
-  .cloud-dot.ok { color: #2ecc71; }
-  .cloud-dot.err { color: #e74c3c; }
-  .cloud-dot.info { color: #f1c40f; }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="header">
-  <span class="meta" id="metaInfo"></span><span class="cloud-dot info" id="cloudDot" title="cloud status">●</span>
+  <span class="meta" id="metaInfo"></span>
   <button class="mode-btn" id="modeBtn" onclick="toggleMode()">Learn</button>
 </div>
 <div class="quiz-view" id="quizView">
@@ -153,38 +108,15 @@
     <span id="sliderVal">3.0s</span>
   </div>
   <div class="bottom-bar">
-    <button onclick="exportCSV()">Export CSV</button>
+    <button onclick="exportProb()">Export Prob</button>
     <button onclick="resetProb()">Reset Prob</button>
-    <button onclick="manualSave()">Save &#9729;</button>
+    <button onclick="syncToLocal()">Save Snapshot</button>
   </div>
 </div>
 <div class="learn-view" id="learnView">
-  <div class="learn-toolbar">
-    <input type="text" id="searchBox" placeholder="Search word / meaning / example&hellip;" oninput="renderLearn()">
-    <select id="sortSel" onchange="renderLearn()">
-      <option value="orig">Original order</option>
-      <option value="word">Word A&ndash;Z</option>
-      <option value="word_desc">Word Z&ndash;A</option>
-      <option value="prob_desc">Prob high&rarr;low</option>
-      <option value="prob_asc">Prob low&rarr;high</option>
-    </select>
-    <button onclick="addWord()">+ Add</button>
-    <button onclick="reloadCloud()">&#8635; Reload</button>
-    <button class="primary" onclick="manualSave()">&#9729; Save</button>
-  </div>
-  <div class="learn-statusbar">
-    <span class="msg info" id="learnStatus">Ready</span>
-    <span class="count" id="learnCount"></span>
-  </div>
   <div class="word-list">
     <table>
-      <thead><tr>
-        <th class="sortable" onclick="setSort('word')">Word <span class="arrow" id="arr-word"></span></th>
-        <th>Definition</th>
-        <th>Example</th>
-        <th class="sortable" onclick="setSort('prob')">% <span class="arrow" id="arr-prob"></span></th>
-        <th></th>
-      </tr></thead>
+      <thead><tr><th>Word</th><th>Definition</th><th>Example</th></tr></thead>
       <tbody id="learnBody"></tbody>
     </table>
   </div>
@@ -738,289 +670,79 @@ const BAKED_WORDS = [
     "prob": 5.0
   }
 ];
-/* ===================== Supabase config ===================== */
-const SUPABASE_URL = 'https://upqnxyllnenivehmallp.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_o7KDz58nXdjLN7TwOw2Xhg_VBWzOccH';
-const BUCKET       = 'csv-data';
-const DATA_FILE    = 'flashcards_words.csv';
-const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-
-const STORAGE_KEY = 'flashcard_probs_v1';   // legacy prob map (migration)
-const CACHE_KEY   = 'flashcard_words_cache_v1';
-
+const STORAGE_KEY = 'flashcard_probs_v1';
 let words = [], currentIndex = -1, isRevealing = false, delaySec = 3.0, timer = null, isLearningMode = false;
-let recent = [];                 // recently shown words (anti-repeat)
-let cloudTimer = null, dirty = false;
-let sortField = '', sortDir = 1; // header click sort state
 
-/* ===================== CSV helpers (RFC-4180) ===================== */
-function clampProb(n){ if(n===null||n===undefined||isNaN(n)) return 50; return Math.max(0, Math.min(100, n)); }
-function csvEsc(v){ v = (v==null?'':String(v)); return /[",\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
-function toCSV(rows){
-  let out = 'word,meaning,example,prob\n';
-  for(const w of rows) out += [csvEsc(w.word), csvEsc(w.meaning), csvEsc(w.example), csvEsc(Math.round(w.prob*100)/100)].join(',') + '\n';
-  return out;
-}
-function parseCSV(text){
-  const rows=[]; let i=0, field='', row=[], inQ=false;
-  text = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
-  while(i<text.length){
-    const c=text[i];
-    if(inQ){
-      if(c==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} inQ=false;i++;continue; }
-      field+=c;i++;continue;
-    }
-    if(c==='"'){ inQ=true;i++;continue; }
-    if(c===','){ row.push(field);field='';i++;continue; }
-    if(c==='\n'){ row.push(field);rows.push(row);row=[];field='';i++;continue; }
-    field+=c;i++;
-  }
-  if(field.length || row.length){ row.push(field); rows.push(row); }
-  return rows;
-}
-function fromCSV(text){
-  const rows = parseCSV(text);
-  if(!rows.length) return [];
-  let start = 0;
-  const h0 = (rows[0][0]||'').trim().toLowerCase();
-  if(h0==='word' || h0==='english') start = 1;   // skip header
-  const out=[];
-  for(let i=start;i<rows.length;i++){
-    const r=rows[i];
-    if(!r || (r.length===1 && r[0].trim()==='')) continue;
-    const word=(r[0]||'').trim();
-    if(!word) continue;
-    let prob = 50;
-    if(r[3]!==undefined && String(r[3]).trim()!=='') prob = clampProb(parseFloat(r[3]));
-    out.push({ word, meaning:(r[1]||'').trim(), example:(r[2]||'').trim(), prob });
-  }
-  return out;
-}
-
-/* ===================== Cloud I/O ===================== */
-function setCloudDot(cls){ const d=document.getElementById('cloudDot'); d.className='cloud-dot '+cls; }
-async function cloudLoad(){
-  if(!sb) throw new Error('SDK not loaded');
-  const { data:{ publicUrl } } = sb.storage.from(BUCKET).getPublicUrl(DATA_FILE);
-  const res = await fetch(publicUrl + '?t=' + Date.now(), { cache:'no-store', headers:{ 'Cache-Control':'no-cache, no-store' } });
-  if(!res.ok) throw new Error('HTTP '+res.status);
-  return fromCSV(await res.text());
-}
-async function cloudSave(){
-  if(!sb) throw new Error('SDK not loaded');
-  const blob = new Blob([toCSV(words)], { type:'text/csv' });
-  const { error } = await sb.storage.from(BUCKET).upload(DATA_FILE, blob, { upsert:true, contentType:'text/csv' });
-  if(error) throw error;
-}
-function saveLocalCache(){ try{ localStorage.setItem(CACHE_KEY, JSON.stringify(words)); }catch(e){} }
-function scheduleCloudSave(){
-  dirty = true; saveLocalCache(); setCloudDot('info');
-  clearTimeout(cloudTimer);
-  cloudTimer = setTimeout(pushCloud, 2500);
-}
-async function pushCloud(){
-  if(!dirty) return;
-  try{ await cloudSave(); dirty=false; setCloudDot('ok'); setLearnStatus('Saved to cloud \u2713','ok'); }
-  catch(e){ setCloudDot('err'); setLearnStatus('Cloud save failed \u2014 kept locally','err'); }
-}
-
-/* ===================== Init ===================== */
-async function init(){
-  // instant start from local cache (if any) so UI isn't blank
-  const cache = localStorage.getItem(CACHE_KEY);
-  if(cache){ try{ const c=JSON.parse(cache); if(Array.isArray(c)&&c.length) words=c; }catch(e){} }
-
-  setCloudDot('info');
-  try{
-    const cloud = await cloudLoad();
-    if(cloud && cloud.length){ words = cloud; recent=[]; saveLocalCache(); setCloudDot('ok'); }
-    else { await seedCloud(); }
-  }catch(e){
-    if(!words.length){
-      // no cache, no cloud -> seed from baked list and create the cloud file
-      words = BAKED_WORDS.map(w=>({...w}));
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if(saved){ try{ const m=JSON.parse(saved); for(const w of words) if(w.word in m) w.prob=m[w.word]; }catch(e){} }
-      saveLocalCache();
-      try{ await cloudSave(); setCloudDot('ok'); }catch(_){ setCloudDot('err'); }
-    } else {
-      setCloudDot('err');   // offline but we have cache
-    }
-  }
+function init() {
+  words = BAKED_WORDS.map(w => ({...w}));
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) { try { const m = JSON.parse(saved); for (const w of words) if (w.word in m) w.prob = m[w.word]; } catch(e) {} }
   showNextWord();
 }
-async function seedCloud(){
-  words = BAKED_WORDS.map(w=>({...w}));
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if(saved){ try{ const m=JSON.parse(saved); for(const w of words) if(w.word in m) w.prob=m[w.word]; }catch(e){} }
-  saveLocalCache();
-  try{ await cloudSave(); setCloudDot('ok'); }catch(_){ setCloudDot('err'); }
+function saveProbs() {
+  const m = {}; for (const w of words) m[w.word] = Math.round(w.prob*100)/100;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(m));
 }
-
-/* ===================== Quiz ===================== */
-function pickNextWord(){
-  if(!words.length) return -1;
-  if(words.length===1) return 0;
-  // anti-repeat: exclude the most-recently-shown words from the draw
-  const histSize = Math.min(Math.max(Math.floor(words.length/3), 3), 25);
-  const recentSet = new Set(recent.slice(-histSize));
-  let pool = [];
-  for(let i=0;i<words.length;i++) if(!recentSet.has(words[i].word)) pool.push(i);
-  if(!pool.length) pool = words.map((_,i)=>i);
-  const total = pool.reduce((s,i)=> s + Math.max(0.01, words[i].prob), 0);
-  let r = Math.random()*total, pick = pool[pool.length-1];
-  for(const i of pool){ r -= Math.max(0.01, words[i].prob); if(r<=0){ pick=i; break; } }
-  recent.push(words[pick].word);
-  if(recent.length>80) recent.shift();
-  return pick;
+function pickNextWord() {
+  if (!words.length) return -1;
+  const total = words.reduce((s,w) => s+w.prob, 0);
+  let r = Math.random()*total;
+  for (let i=0;i<words.length;i++) { r-=words[i].prob; if(r<=0) return i; }
+  return words.length-1;
 }
-function showNextWord(){
-  clearTimeout(timer); isRevealing=false; currentIndex=pickNextWord();
-  if(currentIndex<0){ document.getElementById('wordLabel').textContent='(no words)'; return; }
-  const w=words[currentIndex];
-  document.getElementById('wordLabel').textContent=w.word;
-  document.getElementById('meaningLabel').textContent='';
-  document.getElementById('exampleLabel').textContent='';
-  document.getElementById('metaInfo').textContent=`${Math.round(w.prob)}% \u00b7 ${words.length} words`;
+function showNextWord() {
+  clearTimeout(timer); isRevealing = false; currentIndex = pickNextWord();
+  if (currentIndex<0) return;
+  const w = words[currentIndex];
+  document.getElementById('wordLabel').textContent = w.word;
+  document.getElementById('meaningLabel').textContent = '';
+  document.getElementById('exampleLabel').textContent = '';
+  document.getElementById('metaInfo').textContent = `${Math.round(w.prob)}% \u00b7 ${words.length} words`;
   setButtonsEnabled(true);
 }
-function answer(type){
-  if(isRevealing||currentIndex<0) return;
+function answer(type) {
+  if (isRevealing||currentIndex<0) return;
   isRevealing=true; setButtonsEnabled(false);
-  const w=words[currentIndex];
-  if(type==='unknown') w.prob=Math.min(100,w.prob+50);
-  else if(type==='known') w.prob=Math.max(5,w.prob-50);
+  const w = words[currentIndex];
+  if (type==='unknown') w.prob=Math.min(100,w.prob+50);
+  else if (type==='known') w.prob=Math.max(5,w.prob-50);
   else w.prob=40+Math.random()*40;
-  scheduleCloudSave();
-  document.getElementById('meaningLabel').textContent=w.meaning;
-  document.getElementById('exampleLabel').textContent=w.example;
-  document.getElementById('metaInfo').textContent=`${Math.round(w.prob)}% \u00b7 ${words.length} words`;
-  timer=setTimeout(showNextWord, delaySec*1000);
+  saveProbs();
+  document.getElementById('meaningLabel').textContent = w.meaning;
+  document.getElementById('exampleLabel').textContent = w.example;
+  document.getElementById('metaInfo').textContent = `${Math.round(w.prob)}% \u00b7 ${words.length} words`;
+  timer = setTimeout(showNextWord, delaySec*1000);
 }
-function setButtonsEnabled(e){
+function setButtonsEnabled(e) {
   document.getElementById('btnUnknown').disabled=!e;
   document.getElementById('btnKnown').disabled=!e;
   document.getElementById('btnHmm').disabled=!e;
 }
-function sliderChanged(){
-  delaySec=document.getElementById('slider').value/2;
-  document.getElementById('sliderVal').textContent=delaySec.toFixed(1)+'s';
+function sliderChanged() {
+  delaySec = document.getElementById('slider').value/2;
+  document.getElementById('sliderVal').textContent = delaySec.toFixed(1)+'s';
 }
-function toggleMode(){
+function toggleMode() {
   isLearningMode=!isLearningMode;
   const btn=document.getElementById('modeBtn');
-  if(isLearningMode){
-    btn.textContent='Quiz'; clearTimeout(timer);
-    document.getElementById('quizView').classList.add('hidden');
-    document.getElementById('learnView').classList.add('active');
-    renderLearn();
-  } else {
-    btn.textContent='Learn';
-    document.getElementById('quizView').classList.remove('hidden');
-    document.getElementById('learnView').classList.remove('active');
-    showNextWord();
-  }
+  if(isLearningMode){btn.textContent='Quiz';clearTimeout(timer);document.getElementById('quizView').classList.add('hidden');document.getElementById('learnView').classList.add('active');populateLearnTable();}
+  else{btn.textContent='Learn';document.getElementById('quizView').classList.remove('hidden');document.getElementById('learnView').classList.remove('active');showNextWord();}
 }
-
-/* ===================== Learn / manage ===================== */
-function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
-function setLearnStatus(msg, cls){
-  const el=document.getElementById('learnStatus');
-  if(!el) return; el.textContent=msg; el.className='msg '+(cls||'info');
+function populateLearnTable(){
+  const s=[...words].sort(()=>Math.random()-0.5), tbody=document.getElementById('learnBody');
+  tbody.innerHTML=s.map(w=>`<tr><td class="word-col">${esc(w.word)}</td><td>${esc(w.meaning)}</td><td style="font-size:12px;color:#666;font-style:italic">${esc(w.example)}</td></tr>`).join('');
 }
-function setSort(field){
-  if(sortField===field){ sortDir=-sortDir; } else { sortField=field; sortDir=1; }
-  document.getElementById('sortSel').value = field==='word' ? (sortDir>0?'word':'word_desc') : (sortDir>0?'prob_asc':'prob_desc');
-  renderLearn();
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function exportProb(){
+  let csv='word,probability\n';for(const w of words)csv+=`"${w.word}",${Math.round(w.prob*100)/100}\n`;
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='words_prob.csv';a.click();
 }
-function currentSort(){
-  const sel=document.getElementById('sortSel').value;
-  return sel;
-}
-function renderLearn(){
-  const q=(document.getElementById('searchBox').value||'').toLowerCase().trim();
-  const sel=currentSort();
-  let items=words.map((w,idx)=>({w,idx}));
-  if(q) items=items.filter(o=>(o.w.word+' '+o.w.meaning+' '+o.w.example).toLowerCase().includes(q));
-  const cmp={
-    orig:(a,b)=>a.idx-b.idx,
-    word:(a,b)=>a.w.word.toLowerCase().localeCompare(b.w.word.toLowerCase()),
-    word_desc:(a,b)=>b.w.word.toLowerCase().localeCompare(a.w.word.toLowerCase()),
-    prob_desc:(a,b)=>b.w.prob-a.w.prob || a.idx-b.idx,
-    prob_asc:(a,b)=>a.w.prob-b.w.prob || a.idx-b.idx
-  }[sel];
-  if(cmp) items.sort(cmp);
-  document.getElementById('arr-word').textContent = sel==='word'?'\u25b2':(sel==='word_desc'?'\u25bc':'');
-  document.getElementById('arr-prob').textContent = sel==='prob_asc'?'\u25b2':(sel==='prob_desc'?'\u25bc':'');
-  const body=document.getElementById('learnBody');
-  body.innerHTML=items.map(o=>{
-    const w=o.w;
-    return `<tr data-idx="${o.idx}">`+
-      `<td class="word-col" contenteditable spellcheck="false" data-field="word" onblur="cellEdit(this)">${esc(w.word)}</td>`+
-      `<td contenteditable data-field="meaning" onblur="cellEdit(this)">${esc(w.meaning)}</td>`+
-      `<td class="ex" contenteditable spellcheck="false" data-field="example" onblur="cellEdit(this)">${esc(w.example)}</td>`+
-      `<td class="prob-col" contenteditable spellcheck="false" data-field="prob" onblur="cellEdit(this)">${Math.round(w.prob)}</td>`+
-      `<td class="del-col"><button title="delete" onclick="delWord(${o.idx})">\u2715</button></td>`+
-    `</tr>`;
-  }).join('');
-  document.getElementById('learnCount').textContent=`${items.length} / ${words.length} words`;
-}
-function cellEdit(el){
-  const tr=el.closest('tr'); const idx=+tr.dataset.idx; const f=el.dataset.field;
-  if(idx<0||idx>=words.length) return;
-  let v=el.textContent.trim();
-  if(f==='prob'){
-    let n=parseFloat(v); if(isNaN(n)) n=words[idx].prob; n=clampProb(n);
-    if(n!==words[idx].prob){ words[idx].prob=n; scheduleCloudSave(); }
-    el.textContent=Math.round(n);
-  } else {
-    if(v!==words[idx][f]){ words[idx][f]=v; scheduleCloudSave(); }
-  }
-}
-function delWord(idx){
-  if(idx<0||idx>=words.length) return;
-  if(!confirm('Delete "'+words[idx].word+'"?')) return;
-  words.splice(idx,1); renderLearn(); scheduleCloudSave();
-}
-function addWord(){
-  words.unshift({word:'new word', meaning:'', example:'', prob:50});
-  document.getElementById('searchBox').value='';
-  document.getElementById('sortSel').value='orig'; sortField='';
-  renderLearn(); scheduleCloudSave();
-  const first=document.querySelector('#learnBody tr td[contenteditable]');
-  if(first){ first.focus(); document.execCommand && document.getSelection().selectAllChildren(first); }
-}
-async function reloadCloud(){
-  setLearnStatus('Reloading from cloud\u2026','info');
-  try{
-    const cloud=await cloudLoad();
-    if(cloud && cloud.length){ words=cloud; recent=[]; dirty=false; saveLocalCache(); setCloudDot('ok'); setLearnStatus('Reloaded '+cloud.length+' words from cloud \u2713','ok'); renderLearn(); }
-    else setLearnStatus('Cloud file empty','err');
-  }catch(e){ setCloudDot('err'); setLearnStatus('Reload failed: '+e.message,'err'); }
-}
-async function manualSave(){
-  dirty=true; setLearnStatus('Saving to cloud\u2026','info');
-  try{ await cloudSave(); dirty=false; saveLocalCache(); setCloudDot('ok'); setLearnStatus('Saved '+words.length+' words to cloud \u2713','ok'); }
-  catch(e){ setCloudDot('err'); setLearnStatus('Save failed: '+e.message,'err'); }
-}
-
-/* ===================== Misc ===================== */
-function exportCSV(){
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([toCSV(words)],{type:'text/csv'}));
-  a.download='flashcards_words.csv'; a.click();
-}
-function resetProb(){
-  if(!confirm('Reset all probabilities to 100%?')) return;
-  for(const w of words) w.prob=100;
-  scheduleCloudSave();
-  document.getElementById('metaInfo').textContent=`100% \u00b7 ${words.length} words`;
-}
-document.addEventListener('keydown',e=>{ if(isLearningMode) return; if(e.key==='1')answer('unknown'); else if(e.key==='2')answer('known'); else if(e.key==='3')answer('hmm'); });
+function resetProb(){if(!confirm('Reset all probabilities to 100%?'))return;for(const w of words)w.prob=100;saveProbs();document.getElementById('metaInfo').textContent=`100% \u00b7 ${words.length} words`;}
+function syncToLocal(){saveProbs();alert('Probabilities saved to browser storage.');}
+document.addEventListener('keydown',e=>{if(isLearningMode)return;if(e.key==='1')answer('unknown');else if(e.key==='2')answer('known');else if(e.key==='3')answer('hmm');});
 let touchStartX=0;
-document.addEventListener('touchstart',e=>{ touchStartX=e.touches[0].clientX; });
-document.addEventListener('touchend',e=>{ if(isLearningMode) return; const t=e.target; if(t&&t.closest&&t.closest('.learn-view')) return; const dx=e.changedTouches[0].clientX-touchStartX; if(Math.abs(dx)>60){ if(dx<0)answer('unknown'); else answer('known'); } });
-window.addEventListener('beforeunload',()=>{ if(dirty){ try{ saveLocalCache(); }catch(e){} } });
+document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;});
+document.addEventListener('touchend',e=>{if(isLearningMode)return;const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>60){if(dx<0)answer('unknown');else answer('known');}});
 init();
 </script>
 </body>
