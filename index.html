@@ -110,7 +110,7 @@
   <div class="bottom-bar">
     <button onclick="exportProb()">Export Prob</button>
     <button onclick="resetProb()">Reset Prob</button>
-    <button onclick="syncToLocal()">Save to Cloud</button>
+    <button onclick="syncToLocal()">Save Snapshot</button>
   </div>
 </div>
 <div class="learn-view" id="learnView">
@@ -671,135 +671,17 @@ const BAKED_WORDS = [
   }
 ];
 const STORAGE_KEY = 'flashcard_probs_v1';
-
-// ============================================================
-//  Cloud storage — Supabase (same project/bucket as sync_tool).
-//  The master vocabulary list (word, Korean meaning, example, prob)
-//  lives in this CSV: the app loads EVERYTHING from it at startup and
-//  saves probability changes back to it. BAKED_WORDS is only an
-//  offline fallback when the cloud file can't be reached.
-// ============================================================
-const SUPABASE_URL = 'https://upqnxyllnenivehmallp.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_o7KDz58nXdjLN7TwOw2Xhg_VBWzOccH';
-const BUCKET       = 'csv-data';
-const DATA_FILE    = 'flashcards_words.csv';
-const PUBLIC_URL   = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${DATA_FILE}`;
-const OBJECT_URL   = `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${DATA_FILE}`;
-
 let words = [], currentIndex = -1, isRevealing = false, delaySec = 3.0, timer = null, isLearningMode = false;
-let cloudReady = false;      // true once the online CSV has loaded successfully
-let cloudSaveTimer = null;   // debounce handle for probability uploads
 
-// ---- CSV helpers -----------------------------------------------------
-function parseCSV(text) {
-  // Minimal RFC-4180 parser: handles quoted fields with embedded
-  // commas, quotes and newlines (Korean meanings/examples contain commas).
-  const rows = []; let row = [], field = '', i = 0, inQ = false;
-  const endField = () => { row.push(field); field = ''; };
-  const endRow   = () => { rows.push(row); row = []; };
-  while (i < text.length) {
-    const c = text[i];
-    if (inQ) {
-      if (c === '"') { if (text[i+1] === '"') { field += '"'; i += 2; continue; } inQ = false; i++; continue; }
-      field += c; i++; continue;
-    }
-    if (c === '"') { inQ = true; i++; continue; }
-    if (c === ',')  { endField(); i++; continue; }
-    if (c === '\r') { i++; continue; }
-    if (c === '\n') { endField(); endRow(); i++; continue; }
-    field += c; i++;
-  }
-  if (field.length || row.length) { endField(); endRow(); }
-  return rows;
-}
-function csvCell(v) {
-  const s = String(v == null ? '' : v);
-  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
-function buildCSV(rows) {
-  let out = 'word,meaning,example,prob\n';
-  for (const w of rows) {
-    out += [csvCell(w.word), csvCell(w.meaning), csvCell(w.example),
-            Math.round(w.prob * 100) / 100].join(',') + '\n';
-  }
-  return out;
-}
-function rowsFromCSV(text) {
-  const data = parseCSV(text);
-  if (!data.length) return [];
-  let start = 0;
-  const h0 = (data[0][0] || '').trim().toLowerCase();
-  if (h0 === 'word' || h0 === 'english') start = 1;   // skip header row
-  const out = [];
-  for (let r = start; r < data.length; r++) {
-    const cols = data[r];
-    if (!cols || !(cols[0] || '').trim()) continue;
-    let prob = 50.0;
-    if (cols.length > 3 && (cols[3] || '').trim() !== '') {
-      const p = parseFloat(cols[3]); if (!isNaN(p)) prob = p;
-    }
-    out.push({
-      word:    (cols[0] || '').trim(),
-      meaning: (cols[1] || '').trim(),
-      example: (cols[2] || '').trim(),
-      prob,
-    });
-  }
-  return out;
-}
-
-function setMeta(t) { document.getElementById('metaInfo').textContent = t; }
-
-// ---- init / load -----------------------------------------------------
-async function init() {
-  setMeta('Loading…');
-  try {
-    const r = await fetch(PUBLIC_URL + '?t=' + Date.now(), { headers: { 'Cache-Control': 'no-cache' } });
-    if (r.ok) {
-      const rows = rowsFromCSV(await r.text());
-      if (rows.length) { words = rows; cloudReady = true; }
-    }
-  } catch (e) { /* fall through to the offline fallback below */ }
-  if (!cloudReady) {
-    // Offline fallback: baked-in list + any probabilities saved locally.
-    words = BAKED_WORDS.map(w => ({...w}));
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { const m = JSON.parse(saved); for (const w of words) if (w.word in m) w.prob = m[w.word]; } catch(e) {} }
-  }
+function init() {
+  words = BAKED_WORDS.map(w => ({...w}));
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) { try { const m = JSON.parse(saved); for (const w of words) if (w.word in m) w.prob = m[w.word]; } catch(e) {} }
   showNextWord();
 }
-
 function saveProbs() {
-  // Instant local cache (offline safety) …
-  const m = {}; for (const w of words) m[w.word] = Math.round(w.prob * 100) / 100;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(m)); } catch(e) {}
-  // … plus a debounced push of the full list back to Supabase.
-  scheduleCloudSave();
-}
-
-function scheduleCloudSave() {
-  if (!cloudReady) return;            // never overwrite the master list with the fallback set
-  clearTimeout(cloudSaveTimer);
-  cloudSaveTimer = setTimeout(uploadToCloud, 1500);
-}
-
-async function uploadToCloud() {
-  if (!cloudReady) return false;
-  try {
-    const r = await fetch(OBJECT_URL, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'Content-Type': 'text/csv; charset=utf-8',
-        'x-upsert': 'true',
-        'cache-control': 'no-cache',
-      },
-      body: buildCSV(words),
-      keepalive: true,                // allow the request to finish during page unload
-    });
-    return r.ok;
-  } catch (e) { return false; }
+  const m = {}; for (const w of words) m[w.word] = Math.round(w.prob*100)/100;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(m));
 }
 function pickNextWord() {
   if (!words.length) return -1;
@@ -856,16 +738,8 @@ function exportProb(){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='words_prob.csv';a.click();
 }
 function resetProb(){if(!confirm('Reset all probabilities to 100%?'))return;for(const w of words)w.prob=100;saveProbs();document.getElementById('metaInfo').textContent=`100% \u00b7 ${words.length} words`;}
-async function syncToLocal(){
-  saveProbs();
-  if(!cloudReady){alert('Offline — probabilities saved to this browser only.');return;}
-  clearTimeout(cloudSaveTimer);
-  const ok=await uploadToCloud();
-  alert(ok?'Probabilities saved to the cloud. ✅':'Cloud save failed — kept in browser storage.');
-}
+function syncToLocal(){saveProbs();alert('Probabilities saved to browser storage.');}
 document.addEventListener('keydown',e=>{if(isLearningMode)return;if(e.key==='1')answer('unknown');else if(e.key==='2')answer('known');else if(e.key==='3')answer('hmm');});
-// Flush any pending debounced probability changes before the page is hidden/closed.
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&cloudReady&&cloudSaveTimer){clearTimeout(cloudSaveTimer);cloudSaveTimer=null;uploadToCloud();}});
 let touchStartX=0;
 document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;});
 document.addEventListener('touchend',e=>{if(isLearningMode)return;const dx=e.changedTouches[0].clientX-touchStartX;if(Math.abs(dx)>60){if(dx<0)answer('unknown');else answer('known');}});
