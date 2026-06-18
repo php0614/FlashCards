@@ -21,7 +21,6 @@ import csv
 import io
 import sys
 import platform
-import time
 
 import requests
 from PySide6.QtCore import Qt
@@ -134,7 +133,7 @@ def parse_online_csv(text: str):
 
 def read_online():
     """Download and parse the online CSV. Returns [] if the file does not exist."""
-    resp = requests.get(PUBLIC_URL, params={"t": str(int(time.time()))},
+    resp = requests.get(PUBLIC_URL, params={"t": "nocache"},
                         headers={"Cache-Control": "no-cache"}, timeout=20)
     if resp.status_code in (400, 404):   # object not found yet
         return []
